@@ -46,7 +46,7 @@ func (s showColumnsStmt)Execute(query string, args []interface{}) (*mysql.Result
 
 // adjustShowColumns will adjust original query (in MySQL mode) to Sqlite3 mode
 // original query: SHOW COLUMNS FROM `{tableName}` FROM `{dbName}` WHERE Field = ?
-// result query: SELECT count(*) FROM sqlite_master WHERE tbl_name = {tableName} AND (sql LIKE '%%\"%v\" %%' OR sql LIKE '%%%v %%');
+// result query: SELECT sql FROM sqlite_master WHERE tbl_name = {tableName}
 func adjustShowColumns(query string) string {
 	r, err := regexp.Compile("SHOW\\s+COLUMNS\\s+FROM\\s+[`]?(?P<TableName>\\w+)[`]?")
 	if err != nil {
