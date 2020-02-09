@@ -12,6 +12,7 @@ type ServerConfig struct {
 	Address string
 	UserName string
 	Password string
+	DatabasePath string
 }
 
 type Server struct {
@@ -21,7 +22,7 @@ type Server struct {
 }
 
 func NewServer(cfg ServerConfig) (*Server, error) {
-	s := &Server{config:cfg, dbPool: newDBPool()}
+	s := &Server{config:cfg, dbPool: newDBPool(cfg.DatabasePath)}
 	return s, nil
 }
 

@@ -2,6 +2,7 @@ package sqliteserver
 
 import (
 	"database/sql"
+	"fmt"
 	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -15,7 +16,8 @@ type dbCounter struct {
 type dbPool struct {
 	sync.Mutex
 
-	dbs map[string]*dbCounter
+	dbs    map[string]*dbCounter
+	dbPath string
 }
 
 type DBPool interface {
@@ -23,8 +25,9 @@ type DBPool interface {
 	Release(dbName string)
 }
 
-func newDBPool() DBPool {
+func newDBPool(dbPath string) DBPool {
 	return &dbPool{
+		dbPath: dbPath,
 		dbs:   make(map[string]*dbCounter),
 	}
 }
@@ -35,7 +38,7 @@ func (p *dbPool)UseDB(dbName string) (*sql.DB, error) {
 
 	dbC, ok := p.dbs[dbName]
 	if !ok {
-		db, err := sql.Open("sqlite3", dbName)
+		db, err := sql.Open("sqlite3", fmt.Sprintf("%s/%s", p.dbPath, dbName))
 		if err != nil {
 			logger.Error("cannot open database", zap.String("name", dbName), zap.Error(err))
 			return nil, err
