@@ -27,19 +27,19 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 }
 
 func (s *Server)Start() error {
-	go func() {
-		l, err := net.Listen(s.config.Network, s.config.Address)
-		if err != nil {
-			logger.Error("failed to create net.Listen", zap.Error(err))
-			return
-		}
+	l, err := net.Listen(s.config.Network, s.config.Address)
+	if err != nil {
+		logger.Error("failed to create net.Listen", zap.Error(err))
+		return err
+	}
 
-		s.listener = l
+	s.listener = l
+	go func() {
 		for {
 			c, err := s.listener.Accept()
 			if err != nil {
 				logger.Error("failed to accept connection", zap.Error(err))
-				continue
+				return
 			}
 
 			go s.acceptNewConnection(c)
