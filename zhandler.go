@@ -60,7 +60,7 @@ func (z *zHandler) HandleQuery(query string) (*mysql.Result, error) {
 	case queryTypeCommit:
 		return z.handleCommit()
 	case queryTypeCreateTable:
-		return z.handleExecQuery(query)
+		return z.handleCommandCreateTable(query)
 	case queryTypeSelectDatabase:
 		return handleSelectDatabase(z.dbName)
 	case queryTypeAlterTable:
