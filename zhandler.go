@@ -12,7 +12,7 @@ import (
 
 type zHandler struct {
 	db          *sql.DB
-	stmts       map[int]*sql.Stmt
+	stmts       map[int]statementHandler
 	stmtCounter int
 	mu          sync.Mutex
 	tx          *sql.Tx
@@ -22,7 +22,7 @@ type zHandler struct {
 
 func NewHandler(pool DBPool) server.Handler {
 	return &zHandler{
-		stmts: make(map[int]*sql.Stmt),
+		stmts: make(map[int]statementHandler),
 		pool: pool,
 	}
 }
@@ -185,6 +185,6 @@ func rowsToResult(rows *sql.Rows, binary bool) (*mysql.Result, error) {
 		return nil, err
 	}
 
-	//logger.Info("return results", zap.Uint64("affectedRows", affectedRows))
+	logger.Debug("return results", zap.Uint64("affectedRows", affectedRows))
 	return &mysql.Result{0, 0, affectedRows, result}, nil
 }
