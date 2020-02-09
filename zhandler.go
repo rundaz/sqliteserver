@@ -3,7 +3,6 @@ package sqliteserver
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/siddontang/go-mysql/mysql"
@@ -60,9 +59,25 @@ func (z *zHandler) HandleQuery(query string) (*mysql.Result, error) {
 		return z.handleBeginTransaction()
 	case queryTypeCommit:
 		return z.handleCommit()
+	case queryTypeCreateTable:
+		return z.handleExecQuery(query)
+	case queryTypeSelectDatabase:
+		return handleSelectDatabase(z.dbName)
+	case queryTypeAlterTable:
+		return z.handleAlterTable(query)
 	default:
 		return nil, fmt.Errorf("not supported")
 	}
+}
+
+func handleSelectDatabase(dbName string) (*mysql.Result, error) {
+	result, err := mysql.BuildSimpleTextResultset([]string{"name"}, [][]interface{}{{dbName}})
+	if err != nil {
+		logger.Error("build resultset error", zap.Error(err))
+		return nil, err
+	}
+
+	return &mysql.Result{0, 0, 0, result}, nil
 }
 
 func (z *zHandler) HandleFieldList(table string, fieldWildcard string) ([]*mysql.Field, error) {
@@ -71,67 +86,6 @@ func (z *zHandler) HandleFieldList(table string, fieldWildcard string) ([]*mysql
 		zap.String("fields", fieldWildcard),
 	)
 	panic("implement me")
-}
-
-func (z *zHandler) HandleStmtPrepare(query string) (params int, columns int, context interface{}, err error) {
-	logger.Debug("HandleStmtPrepare", zap.String("query", query))
-	var stmt *sql.Stmt
-	if z.tx != nil {
-		stmt, err = z.tx.Prepare(query)
-	} else {
-		stmt, err = z.db.Prepare(query)
-	}
-	if err != nil {
-		logger.Error("error while prepare statement",
-			zap.String("query", query),
-			zap.Error(err),
-		)
-		return
-	}
-
-	z.mu.Lock()
-	z.stmtCounter ++
-	z.stmts[z.stmtCounter] = stmt
-	z.mu.Unlock()
-
-	params = strings.Count(query, "?")
-	switch getQueryType(query) {
-	case queryTypeInsert, queryTypeDelete, queryTypeUpdate:
-		columns = 0
-	case queryTypeSelect:
-		columns = 2
-	}
-	context = z.stmtCounter
-	return
-}
-
-func (z *zHandler) HandleStmtExecute(context interface{}, query string, args []interface{}) (*mysql.Result, error) {
-	logger.Debug("HandleStmtExecute",
-		zap.Any("context", context),
-		zap.String("query", query),
-		zap.Any("args", args),
-	)
-	z.mu.Lock()
-	stmt := z.stmts[context.(int)]
-	z.mu.Unlock()
-	switch getQueryType(query) {
-	case queryTypeInsert, queryTypeDelete, queryTypeUpdate:
-		return z.doStmtExec(stmt, query, args)
-	case queryTypeSelect:
-		return z.doStmtQuery(stmt, query, args)
-	default:
-		return z.doStmtQuery(stmt, query, args)
-	}
-}
-
-func (z *zHandler) HandleStmtClose(context interface{}) error {
-	logger.Debug("HandleStmtClose", zap.Any("context", context))
-	z.mu.Lock()
-	stmt := z.stmts[context.(int)]
-	delete(z.stmts, context.(int))
-	err := stmt.Close()
-	z.mu.Unlock()
-	return err
 }
 
 func (z *zHandler) HandleOtherCommand(cmd byte, data []byte) error {
@@ -168,35 +122,24 @@ func (z *zHandler) handleCommit() (*mysql.Result, error) {
 	return &mysql.Result{}, nil
 }
 
-func (z *zHandler) doStmtExec(stmt *sql.Stmt, query string, args []interface{}) (*mysql.Result, error) {
-	rs, err := stmt.Exec(args...)
+func (z *zHandler) handleExecQuery(query string) (*mysql.Result, error) {
+	rs, err := z.db.Exec(query)
 	if err != nil {
 		logger.Error("error while exec statement", zap.Error(err))
 		return nil, err
 	}
-	results := &mysql.Result{
-		Status:       0,
-		InsertId:     0,
-		AffectedRows: 0,
-		Resultset:    nil,
-	}
 	ii, err := rs.LastInsertId()
 	num, err := rs.RowsAffected()
-	results.InsertId = uint64(ii)
-	results.AffectedRows = uint64(num)
-	return results, err
+	return &mysql.Result{
+		Status:       0,
+		InsertId:     uint64(ii),
+		AffectedRows: uint64(num),
+		Resultset:    nil,
+	}, err
 }
 
-// Binary Protocol: i.e., using the above COM_STMT_PREPARE, COM_STMT_EXECUTE, COM_STMT_CLOSE
-// the command and returns the results acquired Binary protocol, which is the manner commonly
-// used in various applications developers.
-func (z *zHandler) doStmtQuery(stmt *sql.Stmt, query string, args []interface{}) (*mysql.Result, error) {
-	rows, err := stmt.Query(args...)
-	if err != nil {
-		logger.Error("error while query statement", zap.Error(err))
-		return nil, err
-	}
-	return rowsToResult(rows, true)
+func (z *zHandler) handleAlterTable(query string) (*mysql.Result, error) {
+	return z.handleExecQuery(query)
 }
 
 func rowsToResult(rows *sql.Rows, binary bool) (*mysql.Result, error) {
@@ -242,36 +185,6 @@ func rowsToResult(rows *sql.Rows, binary bool) (*mysql.Result, error) {
 		return nil, err
 	}
 
-	//logger.Infow("return results", "affectedRows", affectedRows)
+	//logger.Info("return results", zap.Uint64("affectedRows", affectedRows))
 	return &mysql.Result{0, 0, affectedRows, result}, nil
-}
-
-type queryType int
-const (
-	queryTypeUnknown queryType = iota
-	queryTypeSelect
-	queryTypeInsert
-	queryTypeUpdate
-	queryTypeDelete
-	queryTypeStartTransaction
-	queryTypeCommit
-)
-func getQueryType(query string) queryType {
-	prefix := strings.Split(strings.ToUpper(strings.TrimSpace(query)), " ")[0]
-	switch prefix {
-	case "INSERT":
-		return queryTypeInsert
-	case "DELETE":
-		return queryTypeDelete
-	case "UPDATE":
-		return queryTypeUpdate
-	case "START":
-		return queryTypeStartTransaction
-	case "COMMIT":
-		return queryTypeCommit
-	case "SELECT":
-		return queryTypeSelect
-	}
-
-	return queryTypeUnknown
 }
