@@ -1,4 +1,4 @@
-module github.com/huuhoa/sqliteserver
+module github.com/rundaz/sqliteserver
 
 go 1.13
 
